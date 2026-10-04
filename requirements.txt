@@ -1,2 +1,4 @@
-google-genai
 streamlit
+google-genai
+python-telegram-bot
+python-dotenv
