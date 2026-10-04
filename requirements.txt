@@ -1,4 +1,6 @@
 streamlit
 google-genai
-python-telegram-bot
+supabase
+requests
 python-dotenv
+python-telegram-bot

@@ -1,7 +1,8 @@
-import json
 import os
 
 from dotenv import load_dotenv
+from supabase import create_client
+
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -11,65 +12,91 @@ from telegram.ext import (
 
 load_dotenv()
 
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-USERS_FILE = "users.json"
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 
-def load_users():
-    try:
-        with open(USERS_FILE, "r", encoding="utf-8") as file:
-            return json.load(file)
-    except FileNotFoundError:
-        return {}
-
-
-def save_users(users):
-    with open(USERS_FILE, "w", encoding="utf-8") as file:
-        json.dump(users, file, indent=4)
+supabase = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY
+)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    chat_id = update.effective_chat.id
     user = update.effective_user
+    chat_id = update.effective_chat.id
 
-    if context.args:
+    # Telegram username
+    username = user.username
 
-        connection_token = context.args[0]
-
-        users = load_users()
-
-        users[connection_token] = {
-            "telegram_chat_id": chat_id,
-            "telegram_username": user.username,
-            "telegram_name": user.first_name,
-        }
-
-        save_users(users)
-
-        await update.message.reply_text(
-            "✅ Telegram connected successfully!\n\n"
-            "You can now return to Doubtlify.\n"
-            "Your study summaries will be sent here. 📚"
-        )
-
-    else:
+    # Check whether token was provided
+    if not context.args:
 
         await update.message.reply_text(
             "Hey! 👋\n\n"
-            "I'm Doubtlify, your AI study buddy. 📚\n\n"
-            "Please connect to me through the "
-            "Doubtlify website."
+            "I'm Doubtlify.\n"
+            "To connect your Telegram account, "
+            "please use the Connect Telegram button "
+            "on the Doubtlify website."
         )
+
+        return
+
+    token = context.args[0]
+
+    # Find connection request
+    response = (
+        supabase
+        .table("telegram_connections")
+        .select("*")
+        .eq("connection_token", token)
+        .limit(1)
+        .execute()
+    )
+
+    if not response.data:
+
+        await update.message.reply_text(
+            "❌ This connection link is invalid or expired.\n\n"
+            "Please generate a new connection link "
+            "from Doubtlify."
+        )
+
+        return
+
+    connection = response.data[0]
+
+    # Update database
+    (
+        supabase
+        .table("telegram_connections")
+        .update({
+            "telegram_chat_id": str(chat_id),
+            "telegram_username": username,
+            "connected": True
+        })
+        .eq("connection_token", token)
+        .execute()
+    )
+
+    student_name = connection["student_name"]
+
+    await update.message.reply_text(
+        f"🎉 You're connected, {student_name}!\n\n"
+        "Doubtlify can now send your study summaries "
+        "to this Telegram account.\n\n"
+        "You can return to the Doubtlify website and "
+        "continue studying. 📚"
+    )
 
 
 def main():
 
-    if not TELEGRAM_BOT_TOKEN:
-        raise ValueError(
-            "TELEGRAM_BOT_TOKEN is missing."
-        )
+    print("Doubtlify Telegram bot is running...")
 
     app = (
         Application.builder()
@@ -80,8 +107,6 @@ def main():
     app.add_handler(
         CommandHandler("start", start)
     )
-
-    print("Doubtlify Telegram bot is running...")
 
     app.run_polling()
 
